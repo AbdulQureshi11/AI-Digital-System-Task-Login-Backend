@@ -94,26 +94,36 @@ export const login = async (req, res) => {
             return res.status(400).json({ message: "Email and password are required" });
         }
 
+        // Check in MongoDB
         const mongoUser = await UserMongo.findOne({ email });
         if (!mongoUser) {
             return res.status(404).json({ message: "User not found! Register Yourself" });
         }
 
+        // Compare password
         const isMatch = await bcrypt.compare(password, mongoUser.password);
         if (!isMatch) {
             return res.status(401).json({ message: "Invalid credentials" });
         }
 
+        // Update last login
         mongoUser.lastLogin = new Date();
         await mongoUser.save();
 
+        // Check in MySQL
         const sqlUser = await User.findOne({ where: { email } });
         if (!sqlUser) {
             return res.status(404).json({ message: "User not found in MySQL" });
         }
 
-        const token = jwt.sign({ id: sqlUser.id }, "SECRET_KEY", { expiresIn: "1d" });
+        // Generate JWT token using env secret
+        const token = jwt.sign(
+            { id: sqlUser.id },
+            process.env.JWT_SECRET,   // ✅ from .env
+            { expiresIn: "1d" }
+        );
 
+        // Insert log
         await insertLog({
             log_type: 1,
             table: 1,
@@ -125,6 +135,7 @@ export const login = async (req, res) => {
             data_after_update: JSON.stringify({ login: true })
         });
 
+        // Send response
         res.status(200).json({
             status: "success",
             message: "Login successful",
@@ -133,6 +144,7 @@ export const login = async (req, res) => {
                 id: sqlUser.id,
                 email: sqlUser.email,
                 name: sqlUser.name,
+                username: sqlUser.username || null
             }
         });
     } catch (err) {
@@ -147,35 +159,72 @@ export const logout = async (req, res) => {
 
 export const getProfile = async (req, res) => {
     try {
-        const user = await User.findByPk(req.user.id, {
+        // Get SQL user
+        const sqlUser = await User.findByPk(req.user.id, {
             attributes: { exclude: ['password'] }
         });
-        if (!user) return res.status(404).json({ message: "User not found" });
+        if (!sqlUser) return res.status(404).json({ message: "User not found" });
 
-        res.json({ message: "User profile", user });
+        // Get Mongo user for profile details
+        const mongoUser = await UserMongo.findOne({ email: sqlUser.email });
+
+        // Construct full name from MongoDB's firstName + lastName, fallback to sqlUser.name
+        const fullName = mongoUser
+            ? `${mongoUser.firstName || ''} ${mongoUser.lastName || ''}`.trim()
+            : sqlUser.name;
+
+        const userProfile = {
+            id: sqlUser.id,
+            name: fullName || sqlUser.name || 'No Name',
+            email: sqlUser.email,
+            username: mongoUser?.username || null,
+            profilePic: mongoUser?.profilePic || null,
+            mobile: mongoUser?.mobile || null,
+            firstName: mongoUser?.firstName || null,
+            lastName: mongoUser?.lastName || null,
+        };
+
+        res.json({ message: "User profile", user: userProfile });
     } catch (err) {
+        console.error("GetProfile Error:", err);
         res.status(500).json({ message: err.message });
     }
 };
 
 export const updateProfile = async (req, res) => {
-    try {
-        const { firstName, lastName, email, mobile } = req.body;
+  try {
+    const { firstName, lastName, email, mobile } = req.body;
 
-        const user = await User.findByPk(req.user.id);
-        if (!user) return res.status(404).json({ message: "User not found" });
+    // 1. SQL user update
+    const user = await User.findByPk(req.user.id);
+    if (!user) return res.status(404).json({ message: "User not found" });
 
-        user.firstName = firstName || user.firstName;
-        user.lastName = lastName || user.lastName;
-        user.email = email || user.email;
-        user.mobile = mobile || user.mobile;
+    if (firstName && lastName) user.name = `${firstName} ${lastName}`;
+    if (email !== undefined) user.email = email;
+    // Agar SQL user model me mobile hai to update karo
+    if (mobile !== undefined && user.mobile !== undefined) user.mobile = mobile;
 
-        await user.save();
+    await user.save();
 
-        res.json({ message: "Profile updated successfully", user });
-    } catch (err) {
-        res.status(500).json({ message: err.message });
+    // 2. MongoDB user update
+    const mongoUser = await UserMongo.findOne({ email: user.email }); 
+
+    if (mongoUser) {
+      if (firstName !== undefined) mongoUser.firstName = firstName;
+      if (lastName !== undefined) mongoUser.lastName = lastName;
+      if (email !== undefined) mongoUser.email = email;
+      if (mobile !== undefined) mongoUser.mobile = mobile;
+
+      await mongoUser.save();
+    } else {
+      
     }
+
+    res.json({ message: "Profile updated successfully" });
+  } catch (err) {
+    console.error("UpdateProfile error:", err);
+    res.status(500).json({ message: err.message });
+  }
 };
 
 export const updateToken = async (req, res) => {

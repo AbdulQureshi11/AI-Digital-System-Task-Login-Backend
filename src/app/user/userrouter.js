@@ -19,7 +19,7 @@ const authRouter = express.Router();
 // Public Auth Routes
 authRouter.post("/registerUser", register);
 authRouter.post("/loginUser", login);
-authRouter.post("/logoutUser", logout);
+authRouter.post("/logoutUser", logout); 
 
 // Protected Profile Routes
 authRouter.get("/getProfile", authMiddleware, getProfile);
