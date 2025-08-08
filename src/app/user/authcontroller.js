@@ -119,7 +119,7 @@ export const login = async (req, res) => {
         // Generate JWT token using env secret
         const token = jwt.sign(
             { id: sqlUser.id },
-            process.env.JWT_SECRET,   // ✅ from .env
+            process.env.JWT_SECRET, 
             { expiresIn: "1d" }
         );
 
