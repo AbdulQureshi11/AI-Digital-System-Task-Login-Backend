@@ -217,9 +217,8 @@ export const updateProfile = async (req, res) => {
 
       await mongoUser.save();
     } else {
-      
-    }
 
+    }
     res.json({ message: "Profile updated successfully" });
   } catch (err) {
     console.error("UpdateProfile error:", err);
